@@ -9,7 +9,17 @@ export async function runScreening(items: ScreeningInputItem[]) {
   const deduped = groupSimilarAndPickBest(qualityFiltered);
   const geminiScores = await evaluateImagesWithGemini(deduped);
   const scored = scoreImages(deduped, geminiScores).sort((a, b) => b.totalScore - a.totalScore);
-  const topItems = scored.slice(0, 50);
+  const topItems = scored.slice(0, 50).map((item, index) => {
+    const rank = index < 10 ? "best" : index < 30 ? "good" : "chance";
+    return {
+      ...item,
+      rank,
+    };
+  });
+
+  const bestCount = Math.min(10, topItems.length);
+  const goodCount = Math.max(0, Math.min(20, topItems.length - bestCount));
+  const chanceCount = Math.max(0, topItems.length - bestCount - goodCount);
 
   return {
     stats: {
@@ -18,6 +28,9 @@ export async function runScreening(items: ScreeningInputItem[]) {
       dedupedCount: deduped.length,
       outputCount: topItems.length,
       scoringMode: geminiScores ? "gemini" : "fallback",
+      bestCount,
+      goodCount,
+      chanceCount,
     },
     items: topItems,
   };

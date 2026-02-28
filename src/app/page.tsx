@@ -28,6 +28,9 @@ type ScreeningResponse = {
     dedupedCount: number;
     outputCount: number;
     scoringMode: "gemini" | "fallback";
+    bestCount: number;
+    goodCount: number;
+    chanceCount: number;
   };
   items: {
     id: string;
@@ -51,6 +54,7 @@ export default function Home() {
   const [screeningSummary, setScreeningSummary] = useState<string>("");
   const [activeTab, setActiveTab] = useState<RankTab>("best");
   const [category, setCategory] = useState<Category | "all">("all");
+  const [dateFilter, setDateFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"score" | "date">("score");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -99,7 +103,7 @@ export default function Home() {
         const screened: ScreeningResponse = await screeningResponse.json();
         setDrivePhotos(mapScreenedDriveItemsToPhotoItems(screened.items ?? []));
         setScreeningSummary(
-          `${screened.stats.outputCount}枚表示（入力${screened.stats.inputCount} → 品質${screened.stats.qualityFilteredCount} → 類似統合${screened.stats.dedupedCount} / 評価:${screened.stats.scoringMode}）`,
+          `${screened.stats.outputCount}枚表示（ベスト${screened.stats.bestCount}/良い感じ${screened.stats.goodCount}/ワンチャン${screened.stats.chanceCount}・評価:${screened.stats.scoringMode}）`,
         );
       } catch {
         setDrivePhotos([]);
@@ -114,17 +118,23 @@ export default function Home() {
 
   const sourcePhotos = drivePhotos.length > 0 ? drivePhotos : photos;
 
+  const monthOptions = useMemo(() => {
+    const unique = new Set(sourcePhotos.map((photo) => photo.date.slice(0, 7)));
+    return [...unique].sort((a, b) => b.localeCompare(a));
+  }, [sourcePhotos]);
+
   const filteredPhotos = useMemo(() => {
     const byTab = activeTab === "all" ? sourcePhotos : sourcePhotos.filter((photo) => photo.rank === activeTab);
     const byCategory = category === "all" ? byTab : byTab.filter((photo) => photo.category === category);
-    const sorted = [...byCategory].sort((a, b) => {
+    const byDate = dateFilter === "all" ? byCategory : byCategory.filter((photo) => photo.date.startsWith(dateFilter));
+    const sorted = [...byDate].sort((a, b) => {
       if (sortBy === "score") {
         return b.score - a.score;
       }
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
     return sorted;
-  }, [activeTab, category, sortBy, sourcePhotos]);
+  }, [activeTab, category, dateFilter, sortBy, sourcePhotos]);
 
   const togglePhoto = (id: string) => {
     if (selectedIds.includes(id)) {
@@ -213,6 +223,19 @@ export default function Home() {
               {categories.map((item) => (
                 <option key={item} value={item}>
                   カテゴリ: {item}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              value={dateFilter}
+              onChange={(event) => setDateFilter(event.target.value)}
+            >
+              <option value="all">日付: すべて</option>
+              {monthOptions.map((month) => (
+                <option key={month} value={month}>
+                  日付: {month}
                 </option>
               ))}
             </select>
