@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# insta-app
 
-## Getting Started
+AI Instagram投稿生成ツールのMVP実装です。  
+現在はUIフロー（Home / Editor / Result）とGoogle Drive OAuth接続の初期実装まで完了しています。
 
-First, run the development server:
+## 起動
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ブラウザで `http://localhost:3000` を開いてください。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Google Drive OAuth設定
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. `.env.example` をコピーして `.env.local` を作成
+2. Google Cloud ConsoleでOAuthクライアントを作成
+3. リダイレクトURIに `http://localhost:3000/api/auth/callback` を登録
+4. `.env.local` に以下を設定
 
-## Learn More
+```bash
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback
+GEMINI_API_KEY=...
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 実装済み（初期）
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Home: 写真グリッド、おすすめタブ、カテゴリ/並び替え、最大3枚選択、固定フッターCTA
+- Editor: 選択画像表示、一言メモ、テーマ選択（日常/学び/挑戦）、生成ボタン
+- Result: 投稿本文、ハッシュタグ、全文コピー、再生成、サブ情報表示
+	- 生成API（`/api/generate`）を呼び出し、Gemini優先で本文/タグ生成
+- Google OAuth: 接続/解除、接続状態確認API
+- Drive API: 画像一覧取得API（`/api/drive/images`）
+- 自動スクリーニング: 低品質除外 → 類似統合 → 3軸スコアリング → 上位50枚抽出（`/api/screening`）
+	- `GEMINI_API_KEY` 設定時はGemini評価
+	- 未設定または失敗時はルールベース評価に自動フォールバック
+- 投稿生成:
+	- `GEMINI_API_KEY` 設定時はGeminiで本文/タグ生成
+	- 未設定または失敗時はテンプレート生成に自動フォールバック
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 主要ファイル
 
-## Deploy on Vercel
+- `src/app/page.tsx` (Home)
+- `src/app/editor/page.tsx` (Editor)
+- `src/app/result/page.tsx` (Result)
+- `src/components/PhotoCard.tsx`
+- `src/components/AppButton.tsx`
+- `src/lib/mock-data.ts`
+- `src/lib/post-generator.ts`
+- `src/lib/server/google.ts`
+- `src/app/api/auth/google/route.ts`
+- `src/app/api/auth/callback/route.ts`
+- `src/app/api/auth/status/route.ts`
+- `src/app/api/auth/disconnect/route.ts`
+- `src/app/api/drive/images/route.ts`
+- `src/app/api/screening/route.ts`
+- `src/app/api/generate/route.ts`
+- `src/lib/screening/pipeline.ts`
+- `src/lib/screening/quality.ts`
+- `src/lib/screening/similarity.ts`
+- `src/lib/screening/scoring.ts`
+- `src/lib/screening/gemini-evaluator.ts`
+- `src/lib/server/gemini-post.ts`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 次の実装候補
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Gemini API連携（本文/タグ生成を実データ化）
+- 画面上でスクリーニング根拠（3軸内訳）を表示

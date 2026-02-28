@@ -1,65 +1,258 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AppButton } from "@/components/AppButton";
+import { PhotoCard } from "@/components/PhotoCard";
+import { mapScreenedDriveItemsToPhotoItems } from "@/lib/drive-mapper";
+import { photos } from "@/lib/mock-data";
+import { categories, PhotoItem, rankTabs, type Category, type RankTab } from "@/lib/photo-types";
+import { setSelectedPhotosStorage } from "@/lib/selection-storage";
+
+type DriveImagesResponse = {
+  items: {
+    id: string;
+    name: string | null;
+    shotAt: string | null;
+    width: number | null;
+    height: number | null;
+    thumbnailUrl: string | null;
+    webViewUrl: string | null;
+  }[];
+};
+
+type ScreeningResponse = {
+  stats: {
+    inputCount: number;
+    qualityFilteredCount: number;
+    dedupedCount: number;
+    outputCount: number;
+    scoringMode: "gemini" | "fallback";
+  };
+  items: {
+    id: string;
+    name: string | null;
+    shotAt: string | null;
+    width: number | null;
+    height: number | null;
+    thumbnailUrl: string | null;
+    webViewUrl: string | null;
+    totalScore: number;
+    category: Category;
+    rank: PhotoItem["rank"];
+  }[];
+};
 
 export default function Home() {
+  const router = useRouter();
+  const [connected, setConnected] = useState<boolean | null>(null);
+  const [drivePhotos, setDrivePhotos] = useState<PhotoItem[]>([]);
+  const [loadingDrive, setLoadingDrive] = useState(false);
+  const [screeningSummary, setScreeningSummary] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<RankTab>("best");
+  const [category, setCategory] = useState<Category | "all">("all");
+  const [sortBy, setSortBy] = useState<"score" | "date">("score");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const response = await fetch("/api/auth/status", { cache: "no-store" });
+        const data: { connected: boolean } = await response.json();
+        setConnected(data.connected);
+      } catch {
+        setConnected(false);
+      }
+    };
+    loadStatus();
+  }, []);
+
+  useEffect(() => {
+    if (!connected) {
+      setDrivePhotos([]);
+      setScreeningSummary("");
+      return;
+    }
+
+    const loadDriveImages = async () => {
+      setLoadingDrive(true);
+      try {
+        const response = await fetch("/api/drive/images?pageSize=120", { cache: "no-store" });
+        if (!response.ok) {
+          setDrivePhotos([]);
+          setScreeningSummary("");
+          return;
+        }
+        const data: DriveImagesResponse = await response.json();
+        const screeningResponse = await fetch("/api/screening", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: data.items ?? [] }),
+        });
+
+        if (!screeningResponse.ok) {
+          setDrivePhotos([]);
+          setScreeningSummary("");
+          return;
+        }
+
+        const screened: ScreeningResponse = await screeningResponse.json();
+        setDrivePhotos(mapScreenedDriveItemsToPhotoItems(screened.items ?? []));
+        setScreeningSummary(
+          `${screened.stats.outputCount}枚表示（入力${screened.stats.inputCount} → 品質${screened.stats.qualityFilteredCount} → 類似統合${screened.stats.dedupedCount} / 評価:${screened.stats.scoringMode}）`,
+        );
+      } catch {
+        setDrivePhotos([]);
+        setScreeningSummary("");
+      } finally {
+        setLoadingDrive(false);
+      }
+    };
+
+    loadDriveImages();
+  }, [connected]);
+
+  const sourcePhotos = drivePhotos.length > 0 ? drivePhotos : photos;
+
+  const filteredPhotos = useMemo(() => {
+    const byTab = activeTab === "all" ? sourcePhotos : sourcePhotos.filter((photo) => photo.rank === activeTab);
+    const byCategory = category === "all" ? byTab : byTab.filter((photo) => photo.category === category);
+    const sorted = [...byCategory].sort((a, b) => {
+      if (sortBy === "score") {
+        return b.score - a.score;
+      }
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+    return sorted;
+  }, [activeTab, category, sortBy, sourcePhotos]);
+
+  const togglePhoto = (id: string) => {
+    if (selectedIds.includes(id)) {
+      setSelectedIds((prev) => prev.filter((prevId) => prevId !== id));
+      return;
+    }
+
+    if (selectedIds.length >= 3) {
+      return;
+    }
+
+    setSelectedIds((prev) => [...prev, id]);
+  };
+
+  const moveToEditor = () => {
+    if (selectedIds.length === 0) {
+      return;
+    }
+
+    const selectedPhotos = sourcePhotos.filter((photo) => selectedIds.includes(photo.id));
+    setSelectedPhotosStorage(selectedPhotos);
+
+    const params = new URLSearchParams({ ids: selectedIds.join(",") });
+    router.push(`/editor?${params.toString()}`);
+  };
+
+  const connectGoogleDrive = () => {
+    window.location.href = "/api/auth/google";
+  };
+
+  const disconnectGoogleDrive = async () => {
+    await fetch("/api/auth/disconnect", { method: "POST" });
+    setConnected(false);
+    setSelectedIds([]);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-slate-50 pb-28">
+      <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-8">
+        <header className="mb-6 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4">
+          <h1 className="text-2xl font-semibold text-slate-900">My Archive</h1>
+          <div className="flex items-center gap-2">
+            {connected ? (
+              <>
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">接続済み</span>
+                <AppButton variant="secondary" onClick={disconnectGoogleDrive}>
+                  解除
+                </AppButton>
+              </>
+            ) : (
+              <AppButton variant="secondary" onClick={connectGoogleDrive}>
+                Google Driveを選択
+              </AppButton>
+            )}
+          </div>
+        </header>
+
+        <section className="mb-6 space-y-4 rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
+          <div className="flex flex-wrap gap-2">
+            {rankTabs.map((tab) => {
+              const active = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                    active
+                      ? "bg-blue-500 text-white"
+                      : "border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  }`}
+                  onClick={() => setActiveTab(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              value={category}
+              onChange={(event) => setCategory(event.target.value as Category | "all")}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              <option value="all">カテゴリ: すべて</option>
+              {categories.map((item) => (
+                <option key={item} value={item}>
+                  カテゴリ: {item}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as "score" | "date")}
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+              <option value="score">並び替え: スコア</option>
+              <option value="date">並び替え: 日付</option>
+            </select>
+          </div>
+
+          {connected && screeningSummary && <p className="text-xs text-slate-500">{screeningSummary}</p>}
+        </section>
+
+        <section className="grid grid-cols-3 gap-4 xl:grid-cols-4">
+          {loadingDrive && connected && (
+            <p className="col-span-full text-sm text-slate-500">Google Driveの画像を読み込み中...</p>
+          )}
+          {filteredPhotos.map((photo) => (
+            <PhotoCard
+              key={photo.id}
+              photo={photo}
+              selected={selectedIds.includes(photo.id)}
+              onClick={() => togglePhoto(photo.id)}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+          ))}
+        </section>
       </main>
+
+      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 px-4 py-4 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+          <p className="text-sm text-slate-600">{selectedIds.length}/3 枚選択中</p>
+          <AppButton disabled={selectedIds.length === 0} onClick={moveToEditor}>
+            選択して次へ（最大3枚）
+          </AppButton>
+        </div>
+      </div>
     </div>
   );
 }
